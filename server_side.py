@@ -29,7 +29,7 @@ def play():
 
         while True:
 
-            bytes_object = conn_sock.recv(15)  # get move from client
+            bytes_object = conn_sock.recv(9)  # get move from client
 
             flag, heap, num_to_dec = struct.unpack(">ici", bytes_object)
 
@@ -89,19 +89,27 @@ def parse_args():
 
 
 def start_listening(port_num):
-    listening_socket = socket(AF_INET, SOCK_STREAM)
+    while True:
+        try:
+            listening_socket = socket(AF_INET, SOCK_STREAM)
 
-    listening_socket.bind(('', port_num))
+            listening_socket.bind(('', port_num))
 
-    listening_socket.listen(5)  # Socket becomes listening
+            listening_socket.listen(5)  # Socket becomes listening
 
-    return listening_socket
+            return listening_socket
+
+        except OSError as error:
+            print(error.strerror)
 
 
 def create_connection(listening_socket):
-    (conn_sock, client_address) = listening_socket.accept()
-
-    return conn_sock, client_address
+    while True:
+        try:
+            (conn_sock, client_address) = listening_socket.accept()
+            return conn_sock, client_address
+        except OSError as error:
+                print(error.strerror)
 
 
 # This function performs one server move.
