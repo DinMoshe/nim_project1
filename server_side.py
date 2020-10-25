@@ -1,7 +1,19 @@
 #!/usr/bin/python3
 from socket import *
 import sys
+import struct
 import errno
+
+# encoding of messages:
+# 0- Move accepted
+# 1- Illegal move
+# 2-You win!
+# 3-Server win!
+# 4-error
+# 5-Disconnected from server
+# 6 - Heap A: #
+#     Heap B: #
+#     Heap C: #
 
 
 def play():
@@ -13,59 +25,53 @@ def play():
 
         conn_sock, client_address = create_connection(listening_socket)
 
-        heap_sizes = str(nim_array[0]) + " " + str(nim_array[1]) + " " + str(nim_array[2])
-
-        my_sendall(conn_sock, heap_sizes.encode())
+        my_sendall(conn_sock, struct.pack(">iiii", 6, nim_array[0], nim_array[1], nim_array[2]))
 
         while True:
 
             bytes_object = conn_sock.recv(15)  # get move from client
 
-            input_arr = bytes_object.decode().split()  # first elem = which heap, 2nd elem = number to decrease
+            flag, heap, num_to_dec = struct.unpack(">ici", bytes_object)
 
-            if is_legal_move(nim_array, input_arr):
-                client_move(nim_array, ord(input_arr[0]) - ord('A'), input_arr[1])
-                my_sendall(conn_sock, "Move accepted\n".encode())
+            if flag == 1 and is_legal_move(nim_array, heap, num_to_dec):
+                client_move(nim_array, ord(heap) - ord('A'), num_to_dec)
+                my_sendall(conn_sock, struct.pack(">iiii", 0, 0, 0, 0))
             else:
-                my_sendall(conn_sock, "Illegal move\n".encode())
+                my_sendall(conn_sock, struct.pack(">iiii",  1, 0, 0, 0))
 
             ret = nim_strategy(nim_array)
 
-            heap_sizes = str(nim_array[0]) + " " + str(nim_array[1]) + " " + str(nim_array[2])
-
-            my_sendall(conn_sock, heap_sizes.encode())
+            my_sendall(conn_sock, struct.pack(">iiii", 6, nim_array[0], nim_array[1], nim_array[2]))
 
             if ret == 1:
-                my_sendall(conn_sock, "You win!".encode())
+                my_sendall(conn_sock , struct.pack(">iiii",  2, 0, 0, 0))
                 break
             elif ret == 0:
-                my_sendall(conn_sock, "Server win!".encode())
+                my_sendall(conn_sock, struct.pack(">iiii",  3, 0, 0, 0))
                 break
 
         conn_sock.close()
 
 
-def is_legal_move(nim_array, input_arr):
-    if input_arr[0] == 'A':
-        if nim_array[0] < input_arr[1]:
-            print("error")
+def is_legal_move(nim_array, heap, num_to_dec):
+    if num_to_dec <= 0:
+        return False
+    if heap == 'A':
+        if nim_array[0] < num_to_dec:
             return False
         else:
             return True
-    elif input_arr[0] == 'B':
-        if nim_array[1] < input_arr[1]:
-            print("error")
+    elif heap == 'B':
+        if nim_array[1] < num_to_dec:
             return False
         else:
             return True
-    elif input_arr[0] == 'C':
-        if nim_array[2] < input_arr[1]:
-            print("error")
+    elif heap == 'C':
+        if nim_array[2] < num_to_dec:
             return False
         else:
             return True
     else:
-        print("error")
         return False
 
 
@@ -119,5 +125,3 @@ def my_sendall(sock, data):
         return None
     ret = sock.send(data)
     return my_sendall(sock, data[ret:])
-
-

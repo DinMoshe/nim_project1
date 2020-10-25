@@ -1,43 +1,49 @@
 #!/usr/bin/python3
 from socket import *
 import sys
+import struct
 import errno
 
 HOST = '127.0.0.1'  # Standard loopback interface address (localhost)
 PORT = 6444  # Port to listen on
+msg_lst = ["Move accepted\n",
+           "Illegal move\n",
+           "You win!\n",
+           "Server win!\n",
+           "error\n",
+           "Disconnected from server\n"]
 
 
 def play():
-
     hostname, port_num = parse_args()
 
     client_sock = create_connection(hostname, port_num)
 
     while True:
+        bytes_object = client_sock.recv(16)  # get heap sizes from server
+
+        heap_sizes = [0, 0, 0]
+        flag, heap_sizes[0], heap_sizes[1], heap_sizes[2] = struct.unpack(">iiii", bytes_object)
+        if flag == 6:
+            current_heap_size(heap_sizes)  # print heaps to client
+
         bytes_object = client_sock.recv(15)  # get heap sizes from server
-
-        heap_sizes = bytes_object.decode()
-
-        nim_array = heap_sizes.split()
-
-        current_heap_size(nim_array)  # print heaps to client
+        flag, heap_sizes[0], heap_sizes[1], heap_sizes[2] = struct.unpack(">iiii", bytes_object)
+        print(msg_lst[flag])
 
         input_arr = input("Your turn:\n").split()
-
         if input_arr[0] == 'Q':
             break
-
-        if len(input_arr) != 2:
-            print("error")
+        elif len(input_arr) == 2 and input_arr[0] in {'A', 'B', 'C'} and input_arr[1].isnumeric():
+            # a legal move has been sent to server
+            my_sendall(client_sock, struct.pack(">ici", 1, input_arr[0], int(input_arr[1])))
         else:
-            if input_arr[0] not in {'A', 'B', 'C'}:
-                print("Illegal move")
-            else:
-                if not input_arr[1].isnumeric():
-                    print("Illegal move")
-                else:
-                    my_sendall(client_sock, " ".join(input_arr).encode())
-                    bytes_object = client_sock.recv(14)  # message = "Move accepted" or "Illegal move"
+            # an illegal move has been sent to server
+            my_sendall(client_sock, struct.pack(">ici", 0, '0', '0'))
+
+        bytes_object = client_sock.recv(15)  # get heap sizes from server
+        flag, heap_sizes[0], heap_sizes[1], heap_sizes[2] = struct.unpack(">iiii", bytes_object)
+        print(msg_lst[flag])
 
     if len(input_arr) > 1:
         print("error")
@@ -50,7 +56,6 @@ def get_input(client_sock):
 
 
 def parse_args():
-
     hostname = HOST
     port_num = PORT
 
@@ -74,10 +79,10 @@ def create_connection(hostname, port_num):
 
 
 # this function prints the current heaps sizes
-def current_heap_size(nim_array):
-    print("Heap A:" + str(nim_array[0]) + "\n")
-    print("Heap B:" + str(nim_array[1]) + "\n")
-    print("Heap C:" + str(nim_array[2]) + "\n")
+def current_heap_size(heap_sizes):
+    print("Heap A:" + str(heap_sizes[0]) + "\n")
+    print("Heap B:" + str(heap_sizes[1]) + "\n")
+    print("Heap C:" + str(heap_sizes[2]) + "\n")
 
 
 def my_sendall(sock, data):
