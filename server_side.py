@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 from socket import *
 import sys
+import errno
 
 
 def play():
@@ -12,25 +13,36 @@ def play():
 
         conn_sock, client_address = create_connection(listening_socket)
 
+        heap_sizes = str(nim_array[0]) + " " + str(nim_array[1]) + " " + str(nim_array[2])
 
+        my_sendall(conn_sock, heap_sizes.encode())
 
-        while input_arr[0] != 'Q':
-            if len(input_arr) != 2:
-                print("error")
+        while True:
+
+            bytes_object = conn_sock.recv(15)  # get move from client
+
+            input_arr = bytes_object.decode().split()  # first elem = which heap, 2nd elem = number to decrease
 
             if is_legal_move(nim_array, input_arr):
                 client_move(nim_array, ord(input_arr[0]) - ord('A'), input_arr[1])
+                my_sendall(conn_sock, "Move accepted\n".encode())
             else:
-                print("error")
+                my_sendall(conn_sock, "Illegal move\n".encode())
 
-            nim_strategy(nim_array)
+            ret = nim_strategy(nim_array)
 
-            current_heap_size(nim_array)
+            heap_sizes = str(nim_array[0]) + " " + str(nim_array[1]) + " " + str(nim_array[2])
 
-        close(conn_sock)
+            my_sendall(conn_sock, heap_sizes.encode())
 
-        if len(input_arr) > 1:
-            print("error")
+            if ret == 1:
+                my_sendall(conn_sock, "You win!".encode())
+                break
+            elif ret == 0:
+                my_sendall(conn_sock, "Server win!".encode())
+                break
+
+        conn_sock.close()
 
 
 def is_legal_move(nim_array, input_arr):
@@ -86,21 +98,26 @@ def create_connection(listening_socket):
     return conn_sock, client_address
 
 
-# this function performs one server move, and prints the winner if the game is complete
+# This function performs one server move.
+# It returns 1 if client wins, 0 if the server wins and 2 otherwise.
 def nim_strategy(nim_array):
     max_index = nim_array.index(max(nim_array))
     if nim_array[max_index] == 0:
-        print("You win!\n")
-        return None
+        # all heaps are empty, so the client won
+        return 1
     else:
         nim_array[max_index] = nim_array[max_index] - 1
         if max(nim_array) == 0:
-            print("Server win!\n")
-    return nim_array
+            # all heaps are empty after server played, so the server won
+            return 0
+    return 2
 
 
-# this function prints the current heaps sizes
-def current_heap_size(n_a, n_b, n_c):
-    print("Heap A:" + str(nim_array[0]) + "\n")
-    print("Heap B:" + str(nim_array[1]) + "\n")
-    print("Heap C:" + str(nim_array[2]) + "\n")
+def my_sendall(sock, data):
+    # add errors
+    if len(data) == 0:
+        return None
+    ret = sock.send(data)
+    return my_sendall(sock, data[ret:])
+
+
