@@ -3,9 +3,8 @@ from socket import *
 import sys
 import struct
 import errno
+from auxialiry import *
 
-HOST = '127.0.0.1'  # Standard loopback interface address (localhost)
-PORT = 6444  # Port to listen on
 msg_lst = ["Move accepted\n",
            "Illegal move\n",
            "You win!\n",
@@ -14,14 +13,20 @@ msg_lst = ["Move accepted\n",
            "Disconnected from server\n"]
 
 
+# This function performs nim game with the server.
 def play():
     hostname, port_num = parse_args()
+
+    if hostname is None and port_num is None:
+        # We received too many arguments, so we terminate.
+        print("Too many arguments. Please enter up to 2 arguments.\n")
+        return
 
     client_sock = create_connection(hostname, port_num)
 
     while True:
         try:
-            bytes_object = client_sock.recv(16)  # get heap sizes from server
+            bytes_object = client_sock.recv(struct.calcsize(">iiii"))  # get heap sizes from server
             if bytes_object == 0:
                 print(msg_lst[5])
                 break
@@ -29,32 +34,32 @@ def play():
             flag, heap_sizes[0], heap_sizes[1], heap_sizes[2] = struct.unpack(">iiii", bytes_object)
             if flag == 6:
                 current_heap_size(heap_sizes)  # print heaps to client
-        except OSError as error:
-            if error.errno == errno.ECONNREFUSED:
+        except OSError as my_error:
+            if my_error.errno == errno.ECONNREFUSED:
                 print(msg_lst[5])
             else:
-                print(error.strerror)
+                print(my_error.strerror)
             break
 
         try:
-            bytes_object = client_sock.recv(16)  # get heap sizes from server
+            bytes_object = client_sock.recv(struct.calcsize(">iiii"))  # get heap sizes from server
             if bytes_object == 0:
                 print(msg_lst[5])
                 break
             flag, heap_sizes[0], heap_sizes[1], heap_sizes[2] = struct.unpack(">iiii", bytes_object)
             print(msg_lst[flag])
-        except OSError as error:
-            if error.errno == errno.ECONNREFUSED:
+        except OSError as my_error:
+            if my_error.errno == errno.ECONNREFUSED:
                 print(msg_lst[5])
             else:
-                print(error.strerror)
+                print(my_error.strerror)
             break
 
         input_arr = input("Your turn:\n").split()
         ret = None
         if input_arr[0] == 'Q':
-            if len(input_arr) > 1:
-                print("error")
+            # if 'Q' is received as the first argument,
+            # then we terminate even if there are more arguments afterwards
             break
         elif len(input_arr) == 2 and input_arr[0] in {'A', 'B', 'C'} and input_arr[1].isnumeric():
             # a legal move has been sent to server
@@ -65,29 +70,28 @@ def play():
 
         if ret == errno.EPIPE or ret == errno.ECONNRESET:
             print(msg_lst[5])
-            break
+            break  # we need to terminate the program because we are not connected to the server anymore
 
         try:
-            bytes_object = client_sock.recv(16)  # get heap sizes from server
+            bytes_object = client_sock.recv(struct.calcsize(">iiii"))  # get heap sizes from server
             if bytes_object == 0:
                 print(msg_lst[5])
                 break
             flag, heap_sizes[0], heap_sizes[1], heap_sizes[2] = struct.unpack(">iiii", bytes_object)
             print(msg_lst[flag])
-        except OSError as error:
-            if error.errno == errno.ECONNREFUSED:
+        except OSError as my_error:
+            if my_error.errno == errno.ECONNREFUSED:
                 print(msg_lst[5])
             else:
-                print(error.strerror)
+                print(my_error.strerror)
             break
 
     client_sock.close()
 
 
-def get_input(client_sock):
-    input_arr = input("Your turn:\n").split()
-
-
+# This function parses the command line arguments.
+# It returns (None, None) if there are too many arguments.
+# Otherwise, it returns (hostname, port_num)
 def parse_args():
     hostname = HOST
     port_num = PORT
@@ -99,18 +103,20 @@ def parse_args():
             port_num = int(sys.argv[2])
 
         if len(sys.argv) > 3:
-            print("error")
+            return None, None
 
     return hostname, port_num
 
 
+# This function connects to server whose hostname is hostname and through port number port_num.
+# If there is OSError, it prints a matching message.
 def create_connection(hostname, port_num):
     try:
         client_sock = socket(AF_INET, SOCK_STREAM)
         client_sock.connect((hostname, port_num))
         return client_sock
-    except OSError as error:
-        print(error.strerror)
+    except OSError as my_error:
+        print(my_error.strerror)
 
 
 # this function prints the current heaps sizes
@@ -120,13 +126,5 @@ def current_heap_size(heap_sizes):
     print("Heap C:" + str(heap_sizes[2]) + "\n")
 
 
-def my_sendall(sock, data):
-    # add errors
-    if len(data) == 0:
-        return None
-    try:
-        ret = sock.send(data)
-        return my_sendall(sock, data[ret:])
-    except OSError as error:
-        return error.errno
+play()  # starting to play
 
