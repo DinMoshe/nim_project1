@@ -2,7 +2,6 @@
 from socket import *
 import sys
 import struct
-import errno
 from auxialiry import *
 
 msg_lst = ["Move accepted\n",
@@ -24,25 +23,16 @@ def play():
 
     client_sock = create_connection(hostname, port_num)
 
-    try:
-        bytes_object = client_sock.recv(struct.calcsize(">iiii"))  # get heap sizes from server
-        if bytes_object == 0:
-            print(msg_lst[5])
-            client_sock.close()
-            return
-        heap_sizes = [0, 0, 0]
-        flag, heap_sizes[0], heap_sizes[1], heap_sizes[2] = struct.unpack(">iiii", bytes_object)
-
-        if flag == 6:
-            current_heap_size(heap_sizes)  # print heaps to client
-
-    except OSError as my_error:
-        if my_error.errno == errno.ECONNREFUSED:
-            print(msg_lst[5])
-        else:
-            print(my_error.strerror)
+    bytes_object = my_recv(struct.calcsize(">iiii"), client_sock)  # get heap sizes from server
+    if bytes_object is None:
+        print(msg_lst[5])
         client_sock.close()
         return
+    heap_sizes = [0, 0, 0]
+    flag, heap_sizes[0], heap_sizes[1], heap_sizes[2] = struct.unpack(">iiii", bytes_object)
+
+    if flag == 6:
+        current_heap_size(heap_sizes)  # print heaps to client
 
     while True:
 
@@ -63,55 +53,33 @@ def play():
             print(msg_lst[5])
             break  # we need to terminate the program because we are not connected to the server anymore
 
-        try:
-            bytes_object = client_sock.recv(struct.calcsize(">iiii"))  # get Move accepted or Illegal move
-            if bytes_object == 0:
-                print(msg_lst[5])
-                break
-            flag = struct.unpack(">iiii", bytes_object)[0]
-            print(msg_lst[flag])
-        except OSError as my_error:
-            if my_error.errno == errno.ECONNREFUSED:
-                print(msg_lst[5])
-            else:
-                print(my_error.strerror)
+        bytes_object = my_recv(struct.calcsize(">iiii"), client_sock)  # get Move accepted or Illegal move
+
+        if bytes_object is None:
+            print(msg_lst[5])
             break
+        flag = struct.unpack(">iiii", bytes_object)[0]
+        print(msg_lst[flag])
 
-        try:
-            bytes_object = client_sock.recv(struct.calcsize(">iiii"))  # get heap sizes from server
-            if bytes_object == 0:
-                print(msg_lst[5])
-                break
-            flag, heap_sizes[0], heap_sizes[1], heap_sizes[2] = struct.unpack(">iiii", bytes_object)
-
-            if flag == 6:
-                current_heap_size(heap_sizes)  # print heaps to client
-
-        except OSError as my_error:
-            if my_error.errno == errno.ECONNREFUSED:
-                print(msg_lst[5])
-            else:
-                print(my_error.strerror)
+        bytes_object = my_recv(struct.calcsize(">iiii"), client_sock)  # get heap sizes from server
+        if bytes_object is None:
+            print(msg_lst[5])
             break
+        flag, heap_sizes[0], heap_sizes[1], heap_sizes[2] = struct.unpack(">iiii", bytes_object)
 
-        try:
-            bytes_object = client_sock.recv(struct.calcsize(">iiii"))  # get You win or Server win or continue playing
-            if bytes_object == 0:
-                print(msg_lst[5])
-                break
-            flag = struct.unpack(">iiii", bytes_object)[0]
+        if flag == 6:
+            current_heap_size(heap_sizes)  # print heaps to client
 
-            if flag == 4:  # we need to continue
-                continue
-            else:
-                print(msg_lst[flag])  # print winner
-                break
+        bytes_object = my_recv(struct.calcsize(">iiii"), client_sock)  # get You win or Server win or continue playing
+        if bytes_object is None:
+            print(msg_lst[5])
+            break
+        flag = struct.unpack(">iiii", bytes_object)[0]
 
-        except OSError as my_error:
-            if my_error.errno == errno.ECONNREFUSED:
-                print(msg_lst[5])
-            else:
-                print(my_error.strerror)
+        if flag == 4:  # we need to continue
+            continue
+        else:
+            print(msg_lst[flag])  # print winner
             break
 
     client_sock.close()
@@ -155,4 +123,3 @@ def current_heap_size(heap_sizes):
 
 
 play()  # starting to play
-

@@ -1,5 +1,7 @@
 #!/usr/bin/python3
 
+import errno
+
 # Definition of the protocol - encoding of messages:
 # 0- Move accepted
 # 1- Illegal move
@@ -26,3 +28,30 @@ def my_sendall(sock, data):
         return my_sendall(sock, data[ret:])
     except OSError as error:
         return error.errno
+
+
+# this function receives exactly num_bytes through sock if the connection is established
+# other wise it returns None
+def my_recv(num_bytes, sock):
+    bytes_object = None
+    try:
+        bytes_object = sock.recv(num_bytes)
+        if bytes_object == 0:  # connection terminated
+            return None
+    except OSError as my_error:
+        if my_error.errno == errno.ECONNREFUSED:  # connection terminated
+            return None
+    byte_array = bytearray(bytes_object)
+    num_bytes -= len(bytes_object)
+    while num_bytes > 0:
+        try:
+            bytes_object = sock.recv(num_bytes)
+            if bytes_object == 0:  # connection terminated
+                return None
+        except OSError as my_error:
+            if my_error.errno == errno.ECONNREFUSED:  # connection terminated
+                return None
+        byte_array.extend(bytearray(bytes_object))
+        num_bytes -= len(bytes_object)
+
+    return bytes(byte_array)

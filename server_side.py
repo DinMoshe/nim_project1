@@ -2,7 +2,6 @@
 from socket import *
 import sys
 import struct
-import errno
 from auxialiry import *
 
 
@@ -10,21 +9,10 @@ from auxialiry import *
 def play(nim_array, conn_sock):
     while True:  # this while loop is for the moves from the client
 
-        print("hi from server\n")
+        bytes_object = my_recv(struct.calcsize(">ici"), conn_sock)  # get a move from client
 
-        bytes_object = 0
-
-        try:
-            bytes_object = conn_sock.recv(struct.calcsize(">ici"))  # get a move from client
-        except OSError as my_error:
-            if my_error.errno == errno.ECONNREFUSED:  # client has disconnected, so we continue to other clients
-                return
-
-        if bytes_object == 0:  # client has disconnected, so we continue to other clients
+        if bytes_object is None:  # client has disconnected, so we continue to other clients
             return
-
-        print("later hi\n")
-
         flag, heap, num_to_dec = struct.unpack(">ici", bytes_object)
 
         heap = heap.decode("ascii")
@@ -40,16 +28,10 @@ def play(nim_array, conn_sock):
             print("Client disconnected\n")
             return  # we need to stop this game and start accepting other clients
 
-        print("before nim_strategy\n")
-
         ret_strategy = nim_strategy(nim_array)  # server plays
-
-        print("after nim_strategy\n")
 
         # send heap sizes:
         ret_send_heaps = my_sendall(conn_sock, struct.pack(">iiii", 6, nim_array[0], nim_array[1], nim_array[2]))
-
-        print("sent heaps after nim_strategy\n")
 
         # checking if the client has disconnected:
         if ret_send_heaps == errno.EPIPE or ret_send_heaps == errno.ECONNRESET:
@@ -68,7 +50,6 @@ def play(nim_array, conn_sock):
             return
 
         if ret_strategy == 1 or ret_strategy == 0:
-            print("someone won\n")
             return  # we need to stop this game and start accepting other clients
 
 
@@ -92,6 +73,9 @@ def accept_clients():
         # we use the heap sizes retrieved from the command line arguments.
 
         conn_sock, client_address = create_connection(listening_socket)
+
+        if conn_sock is None and client_address is None:
+            continue
 
         ret = my_sendall(conn_sock, struct.pack(">iiii", 6, nim_array[0], nim_array[1], nim_array[2]))
 
@@ -134,7 +118,6 @@ def client_move(nim_array, index, num_to_decrease):
 # It return (None, None) if the format of the arguments is illegal.
 # Otherwise, it returns (nim_array, port_num)
 def parse_args():
-
     if len(sys.argv) < 4 or len(sys.argv) > 5:
         return None, None
 
@@ -160,38 +143,36 @@ def parse_args():
 # It tries until it succeed in creating such a socket.
 # In case the port is unavailable, we return None and terminate.
 def start_listening(port_num):
-    while True:
-        try:
-            listening_socket = socket(AF_INET, SOCK_STREAM)
+    try:
+        listening_socket = socket(AF_INET, SOCK_STREAM)
 
-            listening_socket.bind(('', port_num))
+        listening_socket.bind(('', port_num))
 
-            listening_socket.listen(5)  # Socket becomes listening
+        listening_socket.listen(5)  # Socket becomes listening
 
-            return listening_socket
+        return listening_socket
 
-        except OSError as my_error:
-            print(my_error.strerror)
-            if my_error.errno == errno.EADDRINUSE:
-                return None
+    except OSError as my_error:
+        print(my_error.strerror)
+        if my_error.errno == errno.EADDRINUSE:
+            return None
 
 
 # This function creates a connection between the server and a client.
 # It tries until it succeeds in creating such a connection.
 def create_connection(listening_socket):
-    while True:
-        try:
-            (conn_sock, client_address) = listening_socket.accept()
-            return conn_sock, client_address
-        except OSError as my_error:
-            print(my_error.strerror)
+    try:
+        (conn_sock, client_address) = listening_socket.accept()
+        return conn_sock, client_address
+    except OSError as my_error:
+        print(my_error.strerror)
+        return None, None
 
 
 # This function performs one server move.
 # It returns 0 if client wins, 1 if the server wins and 2 otherwise.
 def nim_strategy(nim_array):
     max_index = nim_array.index(max(nim_array))
-    print(str(nim_array[max_index]) + "\n")
     if nim_array[max_index] == 0:
         # all heaps are empty, so the client won
         return 0
