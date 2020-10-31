@@ -10,41 +10,65 @@ from auxialiry import *
 def play(nim_array, conn_sock):
     while True:  # this while loop is for the moves from the client
 
-        bytes_object = conn_sock.recv(struct.calcsize(">ici"))  # get a move from client
+        print("hi from server\n")
+
+        bytes_object = 0
+
+        try:
+            bytes_object = conn_sock.recv(struct.calcsize(">ici"))  # get a move from client
+        except OSError as my_error:
+            if my_error.errno == errno.ECONNREFUSED:  # client has disconnected, so we continue to other clients
+                return
+
+        if bytes_object == 0:  # client has disconnected, so we continue to other clients
+            return
+
+        print("later hi\n")
 
         flag, heap, num_to_dec = struct.unpack(">ici", bytes_object)
 
+        heap = heap.decode("ascii")
+
         if flag == 1 and is_legal_move(nim_array, heap, num_to_dec):
             client_move(nim_array, ord(heap) - ord('A'), num_to_dec)
-            ret = my_sendall(conn_sock, struct.pack(">iiii", 0, 0, 0, 0))
+            ret = my_sendall(conn_sock, struct.pack(">iiii", 0, 0, 0, 0))  # send Move accepted
         else:
-            ret = my_sendall(conn_sock, struct.pack(">iiii", 1, 0, 0, 0))
+            ret = my_sendall(conn_sock, struct.pack(">iiii", 1, 0, 0, 0))  # send Illegal move
 
         # checking if the client has disconnected:
         if ret == errno.EPIPE or ret == errno.ECONNRESET:
             print("Client disconnected\n")
             return  # we need to stop this game and start accepting other clients
 
-        ret_strategy = nim_strategy(nim_array)
+        print("before nim_strategy\n")
 
-        ret = my_sendall(conn_sock, struct.pack(">iiii", 6, nim_array[0], nim_array[1], nim_array[2]))
+        ret_strategy = nim_strategy(nim_array)  # server plays
+
+        print("after nim_strategy\n")
+
+        # send heap sizes:
+        ret_send_heaps = my_sendall(conn_sock, struct.pack(">iiii", 6, nim_array[0], nim_array[1], nim_array[2]))
+
+        print("sent heaps after nim_strategy\n")
+
+        # checking if the client has disconnected:
+        if ret_send_heaps == errno.EPIPE or ret_send_heaps == errno.ECONNRESET:
+            print("Client disconnected\n")
+            return  # we need to stop this game and start accepting other clients
+
+        # send You win or server wins or continue playing
+        ret = my_sendall(conn_sock, struct.pack(">iiii", ret_strategy + 2, 0, 0, 0))
+        # if client wins: ret_strategy + 2 == 2 (You win)
+        # if server wins: ret_strategy + 2 == 3 (Server win)
+        # if nobody wins: ret_strategy + 2 == 4 (continue playing)
 
         # checking if the client has disconnected:
         if ret == errno.EPIPE or ret == errno.ECONNRESET:
             print("Client disconnected\n")
-            return  # we need to stop this game and start accepting other clients
+            return
 
-        if ret_strategy == 1:
-            ret = my_sendall(conn_sock, struct.pack(">iiii", 2, 0, 0, 0))
-            # checking if the client has disconnected:
-            if ret == errno.EPIPE or ret == errno.ECONNRESET:
-                print("Client disconnected\n")
-            return  # we need to stop this game and start accepting other clients
-        elif ret_strategy == 0:
-            ret = my_sendall(conn_sock, struct.pack(">iiii", 3, 0, 0, 0))
-            # checking if the client has disconnected:
-            if ret == errno.EPIPE or ret == errno.ECONNRESET:
-                print("Client disconnected\n")
+        if ret_strategy == 1 or ret_strategy == 0:
+            print("someone won\n")
             return  # we need to stop this game and start accepting other clients
 
 
@@ -58,6 +82,9 @@ def accept_clients():
         return
 
     listening_socket = start_listening(port_num)
+
+    if listening_socket is None:
+        return
 
     while True:  # this while loop is for new connections
 
@@ -114,22 +141,24 @@ def parse_args():
     nim_array = [num for num in sys.argv[1:4]]
 
     for item in nim_array:
-        if not item.isnumeric():
+        if not item.isnumeric() or (int(item) < 1 or int(item) > 1000):
             return None, None
 
     nim_array = [int(num) for num in nim_array]
 
     if len(sys.argv) == 5:  # we received port
-        if not sys.argv[5].isnumeric():
+        if not sys.argv[4].isnumeric():
             return None, None
-        port_num = int(sys.argv[5])
+        port_num = int(sys.argv[4])
     else:
         port_num = PORT
+    print(port_num)
     return nim_array, port_num
 
 
 # This function creates a listening socket.
 # It tries until it succeed in creating such a socket.
+# In case the port is unavailable, we return None and terminate.
 def start_listening(port_num):
     while True:
         try:
@@ -143,6 +172,8 @@ def start_listening(port_num):
 
         except OSError as my_error:
             print(my_error.strerror)
+            if my_error.errno == errno.EADDRINUSE:
+                return None
 
 
 # This function creates a connection between the server and a client.
@@ -157,17 +188,18 @@ def create_connection(listening_socket):
 
 
 # This function performs one server move.
-# It returns 1 if client wins, 0 if the server wins and 2 otherwise.
+# It returns 0 if client wins, 1 if the server wins and 2 otherwise.
 def nim_strategy(nim_array):
     max_index = nim_array.index(max(nim_array))
+    print(str(nim_array[max_index]) + "\n")
     if nim_array[max_index] == 0:
         # all heaps are empty, so the client won
-        return 1
+        return 0
     else:
         nim_array[max_index] = nim_array[max_index] - 1
         if max(nim_array) == 0:
             # all heaps are empty after server played, so the server won
-            return 0
+            return 1
     return 2
 
 

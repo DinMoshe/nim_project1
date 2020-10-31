@@ -5,7 +5,7 @@
 # 1- Illegal move
 # 2-You win!
 # 3-Server win!
-# 4-error
+# 4-continue playing
 # 5-Disconnected from server
 # 6 - Heap A: #
 #     Heap B: #
