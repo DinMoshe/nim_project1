@@ -4,12 +4,12 @@ import sys
 import struct
 from auxialiry import *
 
-msg_lst = ["Move accepted\n",
-           "Illegal move\n",
-           "You win!\n",
-           "Server win!\n",
-           "error\n",
-           "Disconnected from server\n"]
+msg_lst = ["Move accepted",
+           "Illegal move",
+           "You win!",
+           "Server win!",
+           "error",
+           "Disconnected from server"]
 
 
 # This function performs nim game with the server.
@@ -18,7 +18,7 @@ def play():
 
     if hostname is None and port_num is None:
         # We received too many arguments, so we terminate.
-        print("Too many arguments. Please enter up to 2 arguments.\n")
+        print("Too many arguments. Please enter up to 2 arguments.")
         return
 
     client_sock = create_connection(hostname, port_num)
@@ -36,7 +36,7 @@ def play():
 
     while True:
 
-        input_arr = input("Your turn:\n").split()
+        input_arr = input("Your turn:").split()
         ret = None
         if input_arr[0] == 'Q':
             # if 'Q' is received as the first argument,

@@ -25,7 +25,7 @@ def play(nim_array, conn_sock):
 
         # checking if the client has disconnected:
         if ret == errno.EPIPE or ret == errno.ECONNRESET:
-            print("Client disconnected\n")
+            print("Client disconnected")
             return  # we need to stop this game and start accepting other clients
 
         ret_strategy = nim_strategy(nim_array)  # server plays
@@ -35,7 +35,7 @@ def play(nim_array, conn_sock):
 
         # checking if the client has disconnected:
         if ret_send_heaps == errno.EPIPE or ret_send_heaps == errno.ECONNRESET:
-            print("Client disconnected\n")
+            print("Client disconnected")
             return  # we need to stop this game and start accepting other clients
 
         # send You win or server wins or continue playing
@@ -46,7 +46,7 @@ def play(nim_array, conn_sock):
 
         # checking if the client has disconnected:
         if ret == errno.EPIPE or ret == errno.ECONNRESET:
-            print("Client disconnected\n")
+            print("Client disconnected")
             return
 
         if ret_strategy == 1 or ret_strategy == 0:
@@ -59,7 +59,7 @@ def accept_clients():
 
     if nim_array_saved is None and port_num is None:
         print("The format of the arguments is illegal. "
-              "Please run the server again with correct arguments.\n")
+              "Please run the server again with correct arguments.")
         return
 
     listening_socket = start_listening(port_num)
@@ -80,7 +80,7 @@ def accept_clients():
         ret = my_sendall(conn_sock, struct.pack(">iiii", 6, nim_array[0], nim_array[1], nim_array[2]))
 
         if ret == errno.EPIPE or ret == errno.ECONNRESET:
-            print("Client disconnected\n")
+            print("Client disconnected")
             conn_sock.close()
             continue
 
