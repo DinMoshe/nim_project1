@@ -21,6 +21,8 @@ def play(nim_array, conn_sock):
             client_move(nim_array, ord(heap) - ord('A'), num_to_dec)
             ret = my_sendall(conn_sock, struct.pack(">iiii", 0, 0, 0, 0))  # send Move accepted
         else:
+            if flag == 2:
+                return
             ret = my_sendall(conn_sock, struct.pack(">iiii", 1, 0, 0, 0))  # send Illegal move
 
         # checking if the client has disconnected:

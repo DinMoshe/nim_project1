@@ -36,11 +36,16 @@ def play():
 
     while True:
 
-        input_arr = input("Your turn:").split()
+        input_arr = input("Your turn:\n").split()
         ret = None
-        if input_arr[0] == 'Q':
+        if len(input_arr) == 0:
+            # an illegal move has been sent to server
+            ret = my_sendall(client_sock, struct.pack(">ici", 0, '0'.encode("ascii"), 0))
+        elif input_arr[0] == 'Q':
             # if 'Q' is received as the first argument,
             # then we terminate even if there are more arguments afterwards
+            my_sendall(client_sock, struct.pack(">ici", 2, '0'.encode("ascii"), 0))  # if there is an error,
+            # we ignore it because user has requested to quit
             break
         elif len(input_arr) == 2 and input_arr[0] in {'A', 'B', 'C'} and input_arr[1].isnumeric():
             # a legal move has been sent to server

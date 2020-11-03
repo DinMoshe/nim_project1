@@ -2,7 +2,7 @@
 
 import errno
 
-# Definition of the protocol - encoding of messages:
+# Definition of the protocol - encoding of messages from server to client:
 # 0- Move accepted
 # 1- Illegal move
 # 2-You win!
@@ -12,6 +12,10 @@ import errno
 # 6 - Heap A: #
 #     Heap B: #
 #     Heap C: #
+# encoding of messages from client to server:
+# 0 - illegal move (parsing-wise) is sent to server
+# 1 - legal move (parsing-wise) is sent to server
+# 2 - user sent quit request
 
 
 # constants:
@@ -31,7 +35,7 @@ def my_sendall(sock, data):
 
 
 # this function receives exactly num_bytes through sock if the connection is established
-# other wise it returns None
+# otherwise it returns None
 def my_recv(num_bytes, sock):
     bytes_object = None
     try:
@@ -41,6 +45,8 @@ def my_recv(num_bytes, sock):
     except OSError as my_error:
         if my_error.errno == errno.ECONNREFUSED:  # connection terminated
             return None
+    if bytes_object is None:
+        return None
     byte_array = bytearray(bytes_object)
     num_bytes -= len(bytes_object)
     while num_bytes > 0:
