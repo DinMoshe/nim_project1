@@ -9,7 +9,8 @@ msg_lst = ["Move accepted",
            "You win!",
            "Server win!",
            "error",
-           "Disconnected from server"]
+           "Disconnected from server",
+           "Failed to connect to server"]
 
 
 # This function performs nim game with the server.
@@ -22,6 +23,10 @@ def play():
         return
 
     client_sock = create_connection(hostname, port_num)
+
+    if client_sock is None:
+        print(msg_lst[6])
+        return
 
     bytes_object = my_recv(struct.calcsize(">iiii"), client_sock)  # get heap sizes from server
     if bytes_object is None:
@@ -117,7 +122,7 @@ def create_connection(hostname, port_num):
         client_sock.connect((hostname, port_num))
         return client_sock
     except OSError as my_error:
-        print(my_error.strerror)
+        return None
 
 
 # this function prints the current heaps sizes
