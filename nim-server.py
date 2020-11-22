@@ -1,5 +1,7 @@
 #!/usr/bin/python3
 from socket import *
+from queue import Queue
+from select import select
 import sys
 import struct
 from auxialiry import *
@@ -27,7 +29,6 @@ def play(nim_array, conn_sock):
 
         # checking if the client has disconnected:
         if ret == errno.EPIPE or ret == errno.ECONNRESET:
-            print("Client disconnected")
             return  # we need to stop this game and start accepting other clients
 
         ret_strategy = nim_strategy(nim_array)  # server plays
@@ -37,7 +38,6 @@ def play(nim_array, conn_sock):
 
         # checking if the client has disconnected:
         if ret_send_heaps == errno.EPIPE or ret_send_heaps == errno.ECONNRESET:
-            print("Client disconnected")
             return  # we need to stop this game and start accepting other clients
 
         # send You win or server wins or continue playing
@@ -48,7 +48,6 @@ def play(nim_array, conn_sock):
 
         # checking if the client has disconnected:
         if ret == errno.EPIPE or ret == errno.ECONNRESET:
-            print("Client disconnected")
             return
 
         if ret_strategy == 1 or ret_strategy == 0:
@@ -57,12 +56,15 @@ def play(nim_array, conn_sock):
 
 # This function accepts one new client at a time. It always runs in the background.
 def accept_clients():
-    nim_array_saved, port_num = parse_args()  # nim_array = [#A, #B, #C]
+    nim_array_saved, port_num, num_players, wait_list_size = parse_args()  # nim_array = [#A, #B, #C]
 
-    if nim_array_saved is None and port_num is None:
+    if nim_array_saved is None and port_num is None and num_players is None and wait_list_size is None:
         print("The format of the arguments is illegal. "
               "Please run the server again with correct arguments.")
         return
+
+    # Initializing the queue
+    wait_queue = Queue(maxsize=wait_list_size)
 
     listening_socket = start_listening(port_num)
 
@@ -82,7 +84,6 @@ def accept_clients():
         ret = my_sendall(conn_sock, struct.pack(">iiii", 6, nim_array[0], nim_array[1], nim_array[2]))
 
         if ret == errno.EPIPE or ret == errno.ECONNRESET:
-            print("Client disconnected")
             conn_sock.close()
             continue
 
@@ -117,48 +118,62 @@ def client_move(nim_array, index, num_to_decrease):
 
 
 # This function parses command line arguments.
-# It return (None, None) if the format of the arguments is illegal.
-# Otherwise, it returns (nim_array, port_num)
+# It return (None, None, None, None) if the format of the arguments is illegal.
+# Otherwise, it returns (nim_array, port_num, num_players, wait_list_size)
 def parse_args():
-    if len(sys.argv) < 4 or len(sys.argv) > 5:
-        return None, None
+    if len(sys.argv) < 6 or len(sys.argv) > 7:
+        return None, None, None, None
 
     nim_array = [num for num in sys.argv[1:4]]
 
     for item in nim_array:
         if not item.isnumeric() or (int(item) < 1 or int(item) > 1000):
-            return None, None
+            return None, None, None, None
 
     nim_array = [int(num) for num in nim_array]
 
-    if len(sys.argv) == 5:  # we received port
-        if not sys.argv[4].isnumeric():
-            return None, None
+    if not (sys.argv[4].isnumeric() and sys.argv[5].isnumeric()):
+        return None, None, None, None
+
+    num_players = int(sys.argv[4])
+
+    wait_list_size = int(sys.argv[5])
+
+    if num_players < 0 or wait_list_size < 0:
+        return None, None, None, None
+
+    if len(sys.argv) == 7:  # we received port
+        if not sys.argv[6].isnumeric():
+            return None, None, None, None
         port_num = int(sys.argv[4])
     else:
         port_num = PORT
-    print(port_num)
-    return nim_array, port_num
+    return nim_array, port_num, num_players, wait_list_size
 
 
 # This function creates a listening socket.
-# It tries until it succeed in creating such a socket.
+# It tries until it succeeds in creating such a socket.
 # In case the port is unavailable, we return None and terminate.
-def start_listening(port_num):
+def start_listening(port_num, wait_list_size):
     try:
         listening_socket = socket(AF_INET, SOCK_STREAM)
 
         listening_socket.bind(('', port_num))
 
-        listening_socket.listen(5)  # Socket becomes listening
+        listening_socket.listen(wait_list_size)  # Socket becomes listening
 
         return listening_socket
 
     except OSError as my_error:
-        print(my_error.strerror)
         if my_error.errno == errno.EADDRINUSE:
             return None
 
+
+def my_select(listening_socket, client_sockets):
+
+    my_lst = client_sockets + [listening_socket]
+
+    readable, writeable = select(__rlist=my_lst, __wlist=client_sockets, __xlist=[])
 
 # This function creates a connection between the server and a client.
 # It tries until it succeeds in creating such a connection.
@@ -167,7 +182,6 @@ def create_connection(listening_socket):
         (conn_sock, client_address) = listening_socket.accept()
         return conn_sock, client_address
     except OSError as my_error:
-        print(my_error.strerror)
         return None, None
 
 

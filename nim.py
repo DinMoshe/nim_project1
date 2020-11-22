@@ -17,15 +17,22 @@ msg_lst = ["Move accepted",
 def play():
     hostname, port_num = parse_args()
 
-    if hostname is None and port_num is None:
+    if hostname == 0 and port_num is None:
         # We received too many arguments, so we terminate.
         print("Too many arguments. Please enter up to 2 arguments.")
         return
 
+    if hostname == 1 and port_num is None:
+        # port is not a number
+        print("The port entered is not a number. Please enter a legal port.")
+        return
+
     client_sock = create_connection(hostname, port_num)
 
+    # add recv
+
     if client_sock is None:
-        print(msg_lst[6])
+        print(msg_lst[6])  # Failed to connect to server
         return
 
     bytes_object = my_recv(struct.calcsize(">iiii"), client_sock)  # get heap sizes from server
@@ -96,7 +103,8 @@ def play():
 
 
 # This function parses the command line arguments.
-# It returns (None, None) if there are too many arguments.
+# It returns (1, None) if there are too many arguments.
+# It returns (0, None) if port is not a number
 # Otherwise, it returns (hostname, port_num)
 def parse_args():
     hostname = HOST
@@ -106,16 +114,18 @@ def parse_args():
         hostname = sys.argv[1]
 
         if len(sys.argv) > 2:
+            if not sys.argv[2].isnumeric():
+                return 1, None
             port_num = int(sys.argv[2])
 
         if len(sys.argv) > 3:
-            return None, None
+            return 0, None
 
     return hostname, port_num
 
 
 # This function connects to server whose hostname is hostname and through port number port_num.
-# If there is OSError, it prints a matching message.
+# If there is OSError, it prints a matching message and returns None.
 def create_connection(hostname, port_num):
     try:
         client_sock = socket(AF_INET, SOCK_STREAM)
@@ -127,9 +137,9 @@ def create_connection(hostname, port_num):
 
 # this function prints the current heaps sizes
 def current_heap_size(heap_sizes):
-    print("Heap A: " + str(heap_sizes[0]) + "\n")
-    print("Heap B: " + str(heap_sizes[1]) + "\n")
-    print("Heap C: " + str(heap_sizes[2]) + "\n")
+    print("Heap A: " + str(heap_sizes[0]))
+    print("Heap B: " + str(heap_sizes[1]))
+    print("Heap C: " + str(heap_sizes[2]))
 
 
 play()  # starting to play
