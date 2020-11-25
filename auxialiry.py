@@ -8,10 +8,13 @@ import errno
 # 2-You win!
 # 3-Server win!
 # 4-continue playing
-# 5-Disconnected from server
 # 6 - Heap A: #
 #     Heap B: #
 #     Heap C: #
+# 7 - You are rejected by the server.
+# 8 - Waiting to play against the server.
+# 9 - Now you are playing against the server!
+
 # encoding of messages from client to server:
 # 0 - illegal move (parsing-wise) is sent to server
 # 1 - legal move (parsing-wise) is sent to server

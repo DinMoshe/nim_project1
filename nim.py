@@ -8,9 +8,11 @@ msg_lst = ["Move accepted",
            "Illegal move",
            "You win!",
            "Server win!",
-           "error",
            "Disconnected from server",
-           "Failed to connect to server"]
+           "Failed to connect to server",
+           "You are rejected by the server.",
+           "Waiting to play against the server.",
+           "Now you are playing against the server!"]
 
 
 # This function performs nim game with the server.
@@ -32,12 +34,12 @@ def play():
     # add recv
 
     if client_sock is None:
-        print(msg_lst[6])  # Failed to connect to server
+        print(msg_lst[5])  # Failed to connect to server
         return
 
     bytes_object = my_recv(struct.calcsize(">iiii"), client_sock)  # get heap sizes from server
     if bytes_object is None:
-        print(msg_lst[5])
+        print(msg_lst[4])
         client_sock.close()
         return
     heap_sizes = [0, 0, 0]
@@ -67,20 +69,20 @@ def play():
             ret = my_sendall(client_sock, struct.pack(">ici", 0, '0'.encode("ascii"), 0))
 
         if ret == errno.EPIPE or ret == errno.ECONNRESET:
-            print(msg_lst[5])
+            print(msg_lst[4])
             break  # we need to terminate the program because we are not connected to the server anymore
 
         bytes_object = my_recv(struct.calcsize(">iiii"), client_sock)  # get Move accepted or Illegal move
 
         if bytes_object is None:
-            print(msg_lst[5])
+            print(msg_lst[4])
             break
         flag = struct.unpack(">iiii", bytes_object)[0]
         print(msg_lst[flag])
 
         bytes_object = my_recv(struct.calcsize(">iiii"), client_sock)  # get heap sizes from server
         if bytes_object is None:
-            print(msg_lst[5])
+            print(msg_lst[4])
             break
         flag, heap_sizes[0], heap_sizes[1], heap_sizes[2] = struct.unpack(">iiii", bytes_object)
 
@@ -89,7 +91,7 @@ def play():
 
         bytes_object = my_recv(struct.calcsize(">iiii"), client_sock)  # get You win or Server win or continue playing
         if bytes_object is None:
-            print(msg_lst[5])
+            print(msg_lst[4])
             break
         flag = struct.unpack(">iiii", bytes_object)[0]
 
