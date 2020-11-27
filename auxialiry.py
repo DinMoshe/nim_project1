@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 
 import errno
+import struct
 
 # Definition of the protocol - encoding of messages from server to client:
 # 0- Move accepted
@@ -25,6 +26,10 @@ import errno
 HOST = '127.0.0.1'  # Standard loopback interface address (localhost)
 
 PORT = 6444  # Port to listen on
+
+SERVER_MSG_SIZE = struct.calcsize(">iiii")
+CLIENT_MSG_SIZE = struct.calcsize(">ici")
+TIMEOUT = 10
 
 
 def my_sendall(sock, data):

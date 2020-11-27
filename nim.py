@@ -1,5 +1,6 @@
 #!/usr/bin/python3
 from socket import *
+from select import select
 import sys
 import struct
 from auxialiry import *
@@ -13,6 +14,136 @@ msg_lst = ["Move accepted",
            "You are rejected by the server.",
            "Waiting to play against the server.",
            "Now you are playing against the server!"]
+
+RECEIVED_FIRST_MSG = False  # tells us if we received our first message
+
+
+# This method checks what message was received.
+# If we need to terminate, it returns False. Otherwise it returns True.
+def parse_msg(bytes_object):
+    global RECEIVED_FIRST_MSG
+
+    heap_sizes = [0, 0, 0]
+    flag, heap_sizes[0], heap_sizes[1], heap_sizes[2] = struct.unpack(">iiii", bytes_object)
+
+    if flag in {0, 1, 2, 3, 7, 8, 9}:
+        if flag in {7, 8, 9}:
+            flag -= 1
+        print(msg_lst[flag])
+
+        if flag in {2, 3}:
+            return False
+        else:
+            if flag == 4 and RECEIVED_FIRST_MSG:
+                print("Your turn:")
+
+    elif flag == 6:
+        current_heap_size(heap_sizes)  # print heaps to client
+        if not RECEIVED_FIRST_MSG: # this is the first message received so we need to ask the player to play
+            print("Your turn:")
+
+    RECEIVED_FIRST_MSG = True
+    return True
+
+
+def writeable_loop(writeable, to_send, remainder_bytes_to_send):
+    for sock in writeable:
+        if remainder_bytes_to_send == 0 and len(to_send) > 0:
+            remainder_bytes_to_send = CLIENT_MSG_SIZE
+
+        loop_condition = True
+
+        num_bytes_to_send = remainder_bytes_to_send
+
+        if num_bytes_to_send > 0:
+            msg = to_send[:num_bytes_to_send]
+            ret = 0
+            ret_except = None
+            try:
+                ret = sock.send(msg)
+            except OSError as my_error:
+                ret_except = my_error.errno
+            if ret_except == errno.EPIPE or ret_except == errno.ECONNRESET:
+                print(msg_lst[4])
+                loop_condition = False
+                # we need to terminate the program because we are not connected to the server anymore
+            else:
+                to_send = to_send[ret:]
+                remainder_bytes_to_send = num_bytes_to_send - ret
+
+        return remainder_bytes_to_send, to_send, loop_condition
+
+
+def readable_loop(readable, received_from_user, to_send, received_from_server):
+    loop_condition = True
+    for sock in readable:
+        if sock is sys.stdin:
+            # client has entered a move
+            bytes_object = None
+            try:
+                bytes_object = sock.recv(4)
+                if bytes_object == 0:  # connection terminated
+                    loop_condition = False
+                    break
+            except OSError as my_error:
+                if my_error.errno == errno.ECONNREFUSED:  # connection terminated
+                    loop_condition = False
+                    break
+
+            index = bytes_object.find(b"/n")
+            if index == -1:
+                # no new line character
+                received_from_user += struct.unpack(">" + str(len(bytes_object)) + "c", bytes_object)[0]
+            else:
+                user_msg = received_from_user + struct.unpack(">" + str(index) + "c", bytes_object[:index])[0]
+                if index == len(bytes_object) - 1:
+                    received_from_user = ""
+                else:
+                    received_from_user = struct.unpack(">" + str(len(bytes_object) - index - 1) + "c",
+                                                       bytes_object[index + 1:])[0]
+
+                input_arr = user_msg.split()
+
+                if len(input_arr) == 0:
+                    # an illegal move has been sent to server
+                    to_send += struct.pack(">ici", 0, '0'.encode("ascii"), 0)
+                elif input_arr[0] == 'Q':
+                    # if 'Q' is received as the first argument,
+                    # then we terminate even if there are more arguments afterwards
+                    to_send += struct.pack(">ici", 2, '0'.encode("ascii"), 0)
+                    loop_condition = False
+                    break
+                elif len(input_arr) == 2 and input_arr[0] in {'A', 'B', 'C'} and input_arr[1].isnumeric():
+                    # a legal move has been sent to server
+                    to_send += struct.pack(">ici", 1, input_arr[0].encode("ascii"), int(input_arr[1]))
+                else:
+                    # an illegal move has been sent to server
+                    to_send += struct.pack(">ici", 0, '0'.encode("ascii"), 0)
+
+                # if ret == errno.EPIPE or ret == errno.ECONNRESET:
+                #    print(msg_lst[4])
+                #    break  # we need to terminate the program because we are not connected to the server anymore
+        else:
+            # sock is client_sock
+            bytes_object = None
+            try:
+                bytes_object = sock.recv(SERVER_MSG_SIZE)
+                if bytes_object == 0:  # connection terminated
+                    loop_condition = False
+                    break
+            except OSError as my_error:
+                if my_error.errno == errno.ECONNREFUSED:  # connection terminated
+                    loop_condition = False
+                    break
+            received_from_server += bytes_object
+            if len(received_from_server) >= SERVER_MSG_SIZE:
+                msg = received_from_server[:SERVER_MSG_SIZE]
+                received_from_server = received_from_server[SERVER_MSG_SIZE:]
+                if not parse_msg(msg):
+                    loop_condition = False
+                    break
+
+        return received_from_user, to_send, received_from_server, loop_condition
 
 
 # This function performs nim game with the server.
@@ -31,75 +162,34 @@ def play():
 
     client_sock = create_connection(hostname, port_num)
 
-    # add recv
-
     if client_sock is None:
         print(msg_lst[5])  # Failed to connect to server
         return
 
-    bytes_object = my_recv(struct.calcsize(">iiii"), client_sock)  # get heap sizes from server
-    if bytes_object is None:
-        print(msg_lst[4])
-        client_sock.close()
-        return
-    heap_sizes = [0, 0, 0]
-    flag, heap_sizes[0], heap_sizes[1], heap_sizes[2] = struct.unpack(">iiii", bytes_object)
+    to_send = b""
+    received_from_server = b""
+    received_from_user = ""
+    remainder_bytes_to_send = CLIENT_MSG_SIZE
+    to_write = [client_sock]
+    to_read = [client_sock, sys.stdin]
+    loop_condition = True
 
-    if flag == 6:
-        current_heap_size(heap_sizes)  # print heaps to client
+    while loop_condition:
+        readable, writeable = select(__rlist=to_read, __wlist=to_write, __xlist=[], __timeout=TIMEOUT)
 
-    while True:
+        received_from_user, to_send, received_from_server, loop_condition = \
+            readable_loop(readable, received_from_user, to_send, received_from_server)
 
-        input_arr = input("Your turn:\n").split()
-        ret = None
-        if len(input_arr) == 0:
-            # an illegal move has been sent to server
-            ret = my_sendall(client_sock, struct.pack(">ici", 0, '0'.encode("ascii"), 0))
-        elif input_arr[0] == 'Q':
-            # if 'Q' is received as the first argument,
-            # then we terminate even if there are more arguments afterwards
-            my_sendall(client_sock, struct.pack(">ici", 2, '0'.encode("ascii"), 0))  # if there is an error,
-            # we ignore it because user has requested to quit
+        if not loop_condition:
             break
-        elif len(input_arr) == 2 and input_arr[0] in {'A', 'B', 'C'} and input_arr[1].isnumeric():
-            # a legal move has been sent to server
-            ret = my_sendall(client_sock, struct.pack(">ici", 1, input_arr[0].encode("ascii"), int(input_arr[1])))
-        else:
-            # an illegal move has been sent to server
-            ret = my_sendall(client_sock, struct.pack(">ici", 0, '0'.encode("ascii"), 0))
 
-        if ret == errno.EPIPE or ret == errno.ECONNRESET:
-            print(msg_lst[4])
-            break  # we need to terminate the program because we are not connected to the server anymore
+        # loop_condition == True
+        remainder_bytes_to_send, to_send, loop_condition = writeable_loop(writeable, to_send, remainder_bytes_to_send)
 
-        bytes_object = my_recv(struct.calcsize(">iiii"), client_sock)  # get Move accepted or Illegal move
-
-        if bytes_object is None:
-            print(msg_lst[4])
-            break
-        flag = struct.unpack(">iiii", bytes_object)[0]
-        print(msg_lst[flag])
-
-        bytes_object = my_recv(struct.calcsize(">iiii"), client_sock)  # get heap sizes from server
-        if bytes_object is None:
-            print(msg_lst[4])
-            break
-        flag, heap_sizes[0], heap_sizes[1], heap_sizes[2] = struct.unpack(">iiii", bytes_object)
-
-        if flag == 6:
-            current_heap_size(heap_sizes)  # print heaps to client
-
-        bytes_object = my_recv(struct.calcsize(">iiii"), client_sock)  # get You win or Server win or continue playing
-        if bytes_object is None:
-            print(msg_lst[4])
-            break
-        flag = struct.unpack(">iiii", bytes_object)[0]
-
-        if flag == 4:  # we need to continue
-            continue
-        else:
-            print(msg_lst[flag])  # print winner
-            break
+    # flushing the remained messages before disconnecting
+    while to_send != b"":
+        readable, writeable = select(__rlist=to_read, __wlist=to_write, __xlist=[], __timeout=TIMEOUT)
+        remainder_bytes_to_send, to_send, not_important = writeable_loop(writeable, to_send, remainder_bytes_to_send)
 
     client_sock.close()
 

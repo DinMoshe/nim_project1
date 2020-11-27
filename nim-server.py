@@ -6,12 +6,12 @@ import sys
 import struct
 from auxialiry import *
 
-TIMEOUT = 10
 recv_dict = dict()
 send_dict = dict()
 heap_dict = dict()
 is_active_sock_dict = dict()
-how_much_to_read_dict = dict()
+how_much_to_send_dict = dict()  # saves the remainder of the bytes to be sent per client
+started_playing_dict = dict()
 
 
 def num_is_active():
@@ -22,51 +22,13 @@ def num_is_active():
     return i
 
 
-# This function performs nim game with the client connected through conn_sock.
-def play(nim_array, conn_sock):
-    while True:  # this while loop is for the moves from the client
-
-        bytes_object = my_recv(struct.calcsize(">ici"), conn_sock)  # get a move from client
-
-        if bytes_object is None:  # client has disconnected, so we continue to other clients
-            return
-        flag, heap, num_to_dec = struct.unpack(">ici", bytes_object)
-
-        heap = heap.decode("ascii")
-
-        if flag == 1 and is_legal_move(nim_array, heap, num_to_dec):
-            client_move(nim_array, ord(heap) - ord('A'), num_to_dec)
-            ret = my_sendall(conn_sock, struct.pack(">iiii", 0, 0, 0, 0))  # send Move accepted
-        else:
-            if flag == 2:
-                return
-            ret = my_sendall(conn_sock, struct.pack(">iiii", 1, 0, 0, 0))  # send Illegal move
-
-        # checking if the client has disconnected:
-        if ret == errno.EPIPE or ret == errno.ECONNRESET:
-            return  # we need to stop this game and start accepting other clients
-
-        ret_strategy = nim_strategy(nim_array)  # server plays
-
-        # send heap sizes:
-        ret_send_heaps = my_sendall(conn_sock, struct.pack(">iiii", 6, nim_array[0], nim_array[1], nim_array[2]))
-
-        # checking if the client has disconnected:
-        if ret_send_heaps == errno.EPIPE or ret_send_heaps == errno.ECONNRESET:
-            return  # we need to stop this game and start accepting other clients
-
-        # send You win or server wins or continue playing
-        ret = my_sendall(conn_sock, struct.pack(">iiii", ret_strategy + 2, 0, 0, 0))
-        # if client wins: ret_strategy + 2 == 2 (You win)
-        # if server wins: ret_strategy + 2 == 3 (Server win)
-        # if nobody wins: ret_strategy + 2 == 4 (continue playing)
-
-        # checking if the client has disconnected:
-        if ret == errno.EPIPE or ret == errno.ECONNRESET:
-            return
-
-        if ret_strategy == 1 or ret_strategy == 0:
-            return  # we need to stop this game and start accepting other clients
+# This method pops the first client in the queue and activates it if the queue is not empty
+def wake_up_client(wait_queue):
+    if wait_queue.empty():
+        return
+    conn_sock = wait_queue.get()
+    is_active_sock_dict[conn_sock] = True
+    send_dict[conn_sock] += struct.pack(">iiii", 9, 0, 0, 0)
 
 
 # This function accepts one new client at a time. It always runs in the background.
@@ -81,113 +43,138 @@ def accept_clients():
     # Initializing the queue
     wait_queue = Queue(maxsize=wait_list_size)
 
-    listening_socket = start_listening(port_num)
+    with start_listening(port_num, wait_list_size) as listening_socket:
+        if listening_socket is None:
+            return
 
-    if listening_socket is None:
-        return
+        to_write = []
+        to_read = [listening_socket]
 
-    to_write = []
-    to_read = [listening_socket]
+        while True:  # this while loop is for new connections
 
-    while True:  # this while loop is for new connections
+            readable, writeable = select(__rlist=to_read, __wlist=to_write, __xlist=[], __timeout=TIMEOUT)
 
-        readable, writeable = select(__rlist=to_read, __wlist=to_write, __xlist=[], __timeout=TIMEOUT)
+            for s in writeable:
 
-        msg = b""
-        for s in writeable:
-            ret = s.send(msg)
-            send_dict[s] += msg[:ret]
+                if how_much_to_send_dict[s] == 0 and len(send_dict[s]) > 0:
+                    how_much_to_send_dict[s] = SERVER_MSG_SIZE
 
-        for s in readable:
-            if s is listening_socket:
-                nim_array = [item for item in nim_array_saved]  # when the game is restarted,
-                # we use the heap sizes retrieved from the command line arguments.
+                num_bytes_to_send = how_much_to_send_dict[s]
 
-                conn_sock, client_address = create_connection(listening_socket)
-                if conn_sock is None and client_address is None:
-                    # ???
-                    continue
+                if num_bytes_to_send > 0:
+                    msg = send_dict[s][:num_bytes_to_send]
 
-                num_sockets = num_is_active()
-                send_dict[conn_sock] = b""
-                to_write.append(conn_sock)
-                if num_sockets == num_players:
-                    # too many clients
-                    is_active_sock_dict[conn_sock] = False
-                    if wait_queue.full():
-                        send_dict[conn_sock] += struct.pack(">iiii", 7, 0, 0, 0)
-                    else:
-                        send_dict[conn_sock] += struct.pack(">iiii", 8, 0, 0, 0)
-                        to_read.append(conn_sock)
-                        recv_dict[conn_sock] = b""
-                else:
-                    to_read.append(conn_sock)
-                    send_dict[conn_sock] += struct.pack(">iiii", 9, 0, 0, 0)
-                    heap_dict[conn_sock] = nim_array
-                    recv_dict[conn_sock] = b""
-                    is_active_sock_dict[conn_sock] = True
+                    try:
+                        ret = s.send(msg)
+                        send_dict[s] = send_dict[s][ret:]
+                        how_much_to_send_dict[s] = num_bytes_to_send - ret
+                    except OSError as my_error:
+                        ret_except = my_error.errno
+                        if ret_except == errno.EPIPE or ret_except == errno.ECONNRESET:
+                            if is_active_sock_dict[s]:
+                                # we need to deactivate the client because we are not connected to him anymore
+                                is_active_sock_dict[s] = False
+                                wake_up_client(wait_queue)
 
-            else:
-                pass
+            for s in readable:
+                if s is listening_socket:
+                    nim_array = [item for item in nim_array_saved]  # when the game is restarted,
+                    # we use the heap sizes retrieved from the command line arguments.
 
-        for conn_sock in is_active_sock_dict.keys():
-            if not is_active_sock_dict[conn_sock]:
-                continue
-            nim_array = heap_dict[conn_sock]
-            send_dict[conn_sock] += struct.pack(">iiii", 6, nim_array[0], nim_array[1], nim_array[2])
-            # ret = my_sendall(conn_sock, struct.pack(">iiii", 6, nim_array[0], nim_array[1], nim_array[2]))
-            # if ret == errno.EPIPE or ret == errno.ECONNRESET:
-            #     conn_sock.close()
-            #     continue
+                    conn_sock, client_address = create_connection(listening_socket)
 
-            if len(recv_dict[conn_sock]) == struct.calcsize(">ici"):
-                bytes_object = recv_dict[conn_sock]  # get a move from client
-
-                # if bytes_object is None:  # client has disconnected, so we continue to other clients
-                #     continue
-                flag, heap, num_to_dec = struct.unpack(">ici", bytes_object)
-
-                heap = heap.decode("ascii")
-
-                if flag == 1 and is_legal_move(nim_array, heap, num_to_dec):
-                    client_move(nim_array, ord(heap) - ord('A'), num_to_dec)
-                    send_dict[conn_sock] += struct.pack(">iiii", 0, 0, 0, 0)  # send Move accepted
-                else:
-                    if flag == 2:
-                        is_active_sock_dict[conn_sock] = False
+                    if conn_sock is None and client_address is None:
                         continue
 
-                    send_dict[conn_sock] += struct.pack(">iiii", 1, 0, 0, 0)  # send Illegal move
+                    num_sockets = num_is_active()
+                    how_much_to_send_dict[conn_sock] = SERVER_MSG_SIZE
+                    send_dict[conn_sock] = b""
+                    started_playing_dict[conn_sock] = False
+                    to_write.append(conn_sock)
+                    if num_sockets == num_players:
+                        # too many clients
+                        is_active_sock_dict[conn_sock] = False
+                        if wait_queue.full():
+                            send_dict[conn_sock] += struct.pack(">iiii", 7, 0, 0, 0)
+                        else:
+                            send_dict[conn_sock] += struct.pack(">iiii", 8, 0, 0, 0)
+                            to_read.append(conn_sock)
+                            recv_dict[conn_sock] = b""
+                            wait_queue.put(conn_sock)
+                            heap_dict[conn_sock] = nim_array
+                    else:
+                        to_read.append(conn_sock)
+                        send_dict[conn_sock] += struct.pack(">iiii", 9, 0, 0, 0)
+                        heap_dict[conn_sock] = nim_array
+                        recv_dict[conn_sock] = b""
+                        is_active_sock_dict[conn_sock] = True
 
-                # # checking if the client has disconnected:
-                # if ret == errno.EPIPE or ret == errno.ECONNRESET:
-                #     return  # we need to stop this game and start accepting other clients
+                else:
+                    bytes_object = None
+                    try:
+                        bytes_object = s.recv(CLIENT_MSG_SIZE)
+                        if bytes_object == 0:  # connection terminated
+                            if is_active_sock_dict[s]:
+                                is_active_sock_dict[s] = False
+                                wake_up_client(wait_queue)
+                            continue
+                    except OSError as my_error:
+                        if my_error.errno == errno.ECONNREFUSED:  # connection terminated
+                            if is_active_sock_dict[s]:
+                                is_active_sock_dict[s] = False
+                                wake_up_client(wait_queue)
+                            continue
+                    recv_dict[s] += bytes_object
+                    # maybe transfer check if the message is fully received here
 
-                ret_strategy = nim_strategy(nim_array)  # server plays
+            keys = is_active_sock_dict.keys()
 
-                # send heap sizes:
-                send_dict[conn_sock] += struct.pack(">iiii", 6, nim_array[0], nim_array[1], nim_array[2])
+            for conn_sock in keys:
+                if not is_active_sock_dict[conn_sock]:
+                    if send_dict[conn_sock] == b"":
+                        release_socket(conn_sock)
+                    continue
 
-                # # checking if the client has disconnected:
-                # if ret_send_heaps == errno.EPIPE or ret_send_heaps == errno.ECONNRESET:
-                #     return  # we need to stop this game and start accepting other clients
+                nim_array = heap_dict[conn_sock]
+                if not started_playing_dict[conn_sock]:
+                    send_dict[conn_sock] += struct.pack(">iiii", 6, nim_array[0], nim_array[1], nim_array[2])
+                    started_playing_dict[conn_sock] = True
 
-                # send You win or server wins or continue playing
-                send_dict[conn_sock] += struct.pack(">iiii", ret_strategy + 2, 0, 0, 0)
-                # if client wins: ret_strategy + 2 == 2 (You win)
-                # if server wins: ret_strategy + 2 == 3 (Server win)
-                # if nobody wins: ret_strategy + 2 == 4 (continue playing)
+                if len(recv_dict[conn_sock]) >= CLIENT_MSG_SIZE:
+                    bytes_object = recv_dict[conn_sock][:CLIENT_MSG_SIZE]  # get a move from client
 
-                # # checking if the client has disconnected:
-                # if ret == errno.EPIPE or ret == errno.ECONNRESET:
-                #     return
+                    recv_dict[conn_sock] = recv_dict[conn_sock][CLIENT_MSG_SIZE:]
 
-                if ret_strategy == 1 or ret_strategy == 0:
-                    is_active_sock_dict[conn_sock] = False
+                    flag, heap, num_to_dec = struct.unpack(">ici", bytes_object)
 
-        # conn_sock.close()
+                    heap = heap.decode("ascii")
 
-    listening_socket.close()
+                    if flag == 1 and is_legal_move(nim_array, heap, num_to_dec):
+                        client_move(nim_array, ord(heap) - ord('A'), num_to_dec)
+                        send_dict[conn_sock] += struct.pack(">iiii", 0, 0, 0, 0)  # send Move accepted
+                    else:
+                        if flag == 2:
+                            is_active_sock_dict[conn_sock] = False
+                            wake_up_client(wait_queue)
+                            continue
+                        # flag == 0
+                        send_dict[conn_sock] += struct.pack(">iiii", 1, 0, 0, 0)  # send Illegal move
+
+                    ret_strategy = nim_strategy(nim_array)  # server plays
+
+                    # send heap sizes:
+                    send_dict[conn_sock] += struct.pack(">iiii", 6, nim_array[0], nim_array[1], nim_array[2])
+
+                    # send You win or server wins or continue playing
+                    send_dict[conn_sock] += struct.pack(">iiii", ret_strategy + 2, 0, 0, 0)
+                    # if client wins: ret_strategy + 2 == 2 (You win)
+                    # if server wins: ret_strategy + 2 == 3 (Server win)
+                    # if nobody wins: ret_strategy + 2 == 4 (continue playing)
+
+                    if ret_strategy == 1 or ret_strategy == 0:
+                        is_active_sock_dict[conn_sock] = False
+                        wake_up_client(wait_queue)
+
 
 
 # This function checks and returns whether the client's move is legal
@@ -295,7 +282,8 @@ def release_socket(conn_sock):
     recv_dict.pop(conn_sock)
     heap_dict.pop(conn_sock)
     is_active_sock_dict.pop(conn_sock)
-    how_much_to_read_dict.pop(conn_sock)
+    how_much_to_send_dict.pop(conn_sock)
+    started_playing_dict.pop(conn_sock)
     conn_sock.close()
 
 
