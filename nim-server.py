@@ -3,23 +3,24 @@ from socket import *
 from queue import Queue
 from select import select
 import sys
-import struct
 from auxialiry import *
+import signal
 
+TO_STOP = False
 recv_dict = dict()
 send_dict = dict()
 heap_dict = dict()
-is_active_sock_dict = dict()
 how_much_to_send_dict = dict()  # saves the remainder of the bytes to be sent per client
 started_playing_dict = dict()
+playing_sockets = list()
+is_active_dict = dict()
+to_write = list()
+to_read = list()
 
 
-def num_is_active():
-    i = 0
-    for soc in is_active_sock_dict.keys():
-        if is_active_sock_dict[soc]:
-            i += 1
-    return i
+def handler(signum, frame):
+    global TO_STOP
+    TO_STOP = True
 
 
 # This method pops the first client in the queue and activates it if the queue is not empty
@@ -27,7 +28,8 @@ def wake_up_client(wait_queue):
     if wait_queue.empty():
         return
     conn_sock = wait_queue.get()
-    is_active_sock_dict[conn_sock] = True
+    is_active_dict[conn_sock] = True
+    playing_sockets.append(conn_sock)
     send_dict[conn_sock] += struct.pack(">iiii", 9, 0, 0, 0)
 
 
@@ -47,12 +49,16 @@ def accept_clients():
         if listening_socket is None:
             return
 
-        to_write = []
-        to_read = [listening_socket]
+        to_read.append(listening_socket)
 
         while True:  # this while loop is for new connections
 
-            readable, writeable = select(__rlist=to_read, __wlist=to_write, __xlist=[], __timeout=TIMEOUT)
+            if TO_STOP:
+                for conn_sock in playing_sockets:
+                    release_socket(conn_sock)
+                return
+
+            readable, writeable, nothing = select(to_read, to_write, [], TIMEOUT)
 
             for s in writeable:
 
@@ -71,10 +77,9 @@ def accept_clients():
                     except OSError as my_error:
                         ret_except = my_error.errno
                         if ret_except == errno.EPIPE or ret_except == errno.ECONNRESET:
-                            if is_active_sock_dict[s]:
-                                # we need to deactivate the client because we are not connected to him anymore
-                                is_active_sock_dict[s] = False
-                                wake_up_client(wait_queue)
+                            # we need to deactivate the client because we are not connected to him anymore
+                            release_socket(s)
+                            wake_up_client(wait_queue)
 
             for s in readable:
                 if s is listening_socket:
@@ -86,14 +91,14 @@ def accept_clients():
                     if conn_sock is None and client_address is None:
                         continue
 
-                    num_sockets = num_is_active()
+                    num_sockets = len(playing_sockets)
                     how_much_to_send_dict[conn_sock] = SERVER_MSG_SIZE
                     send_dict[conn_sock] = b""
                     started_playing_dict[conn_sock] = False
                     to_write.append(conn_sock)
                     if num_sockets == num_players:
                         # too many clients
-                        is_active_sock_dict[conn_sock] = False
+                        is_active_dict[conn_sock] = False
                         if wait_queue.full():
                             send_dict[conn_sock] += struct.pack(">iiii", 7, 0, 0, 0)
                         else:
@@ -103,36 +108,35 @@ def accept_clients():
                             wait_queue.put(conn_sock)
                             heap_dict[conn_sock] = nim_array
                     else:
+                        is_active_dict[conn_sock] = True
                         to_read.append(conn_sock)
                         send_dict[conn_sock] += struct.pack(">iiii", 9, 0, 0, 0)
                         heap_dict[conn_sock] = nim_array
                         recv_dict[conn_sock] = b""
-                        is_active_sock_dict[conn_sock] = True
+                        playing_sockets.append(conn_sock)
 
                 else:
-                    bytes_object = None
                     try:
                         bytes_object = s.recv(CLIENT_MSG_SIZE)
                         if bytes_object == 0:  # connection terminated
-                            if is_active_sock_dict[s]:
-                                is_active_sock_dict[s] = False
-                                wake_up_client(wait_queue)
+                            release_socket(s)
+                            wake_up_client(wait_queue)
                             continue
+                        recv_dict[s] += bytes_object
                     except OSError as my_error:
                         if my_error.errno == errno.ECONNREFUSED:  # connection terminated
-                            if is_active_sock_dict[s]:
-                                is_active_sock_dict[s] = False
-                                wake_up_client(wait_queue)
+                            release_socket(s)
+                            wake_up_client(wait_queue)
                             continue
-                    recv_dict[s] += bytes_object
                     # maybe transfer check if the message is fully received here
 
-            keys = is_active_sock_dict.keys()
-
-            for conn_sock in keys:
-                if not is_active_sock_dict[conn_sock]:
+            for conn_sock in playing_sockets:
+                if not is_active_dict[conn_sock]:
+                    #  socket has been deactivated due to win
                     if send_dict[conn_sock] == b"":
                         release_socket(conn_sock)
+                        wake_up_client(wait_queue)
+
                     continue
 
                 nim_array = heap_dict[conn_sock]
@@ -154,7 +158,7 @@ def accept_clients():
                         send_dict[conn_sock] += struct.pack(">iiii", 0, 0, 0, 0)  # send Move accepted
                     else:
                         if flag == 2:
-                            is_active_sock_dict[conn_sock] = False
+                            release_socket(conn_sock)
                             wake_up_client(wait_queue)
                             continue
                         # flag == 0
@@ -172,9 +176,7 @@ def accept_clients():
                     # if nobody wins: ret_strategy + 2 == 4 (continue playing)
 
                     if ret_strategy == 1 or ret_strategy == 0:
-                        is_active_sock_dict[conn_sock] = False
-                        wake_up_client(wait_queue)
-
+                        is_active_dict[conn_sock] = False
 
 
 # This function checks and returns whether the client's move is legal
@@ -228,7 +230,7 @@ def parse_args():
     if len(sys.argv) == 7:  # we received port
         if not sys.argv[6].isnumeric():
             return None, None, None, None
-        port_num = int(sys.argv[4])
+        port_num = int(sys.argv[6])
     else:
         port_num = PORT
     return nim_array, port_num, num_players, wait_list_size
@@ -281,10 +283,14 @@ def release_socket(conn_sock):
     send_dict.pop(conn_sock)
     recv_dict.pop(conn_sock)
     heap_dict.pop(conn_sock)
-    is_active_sock_dict.pop(conn_sock)
+    is_active_dict.pop(conn_sock)
     how_much_to_send_dict.pop(conn_sock)
     started_playing_dict.pop(conn_sock)
+    playing_sockets.remove(conn_sock)
+    to_read.remove(conn_sock)
+    to_write.remove(conn_sock)
     conn_sock.close()
 
 
+signal.signal(signal.SIGINT, handler)
 accept_clients()  # starting to accept clients and play with them
