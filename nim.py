@@ -35,10 +35,11 @@ def parse_msg(bytes_object):
 
     if flag in {0, 1, 2, 3, 7, 8, 9}:
         if flag in {7, 8, 9}:
-            flag -= 1
-        print(msg_lst[flag])
+            print(msg_lst[flag - 1])
+        else:
+            print(msg_lst[flag])
 
-        if flag in {2, 3}:
+        if flag in {2, 3, 7}:
             return False
 
     elif flag == 6:
