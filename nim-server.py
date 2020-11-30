@@ -5,6 +5,7 @@ from select import select
 import sys
 from auxialiry import *
 import signal
+from optimal_nim_strategy import nim_optimal_strategy
 
 TO_STOP = False
 recv_dict = dict()
@@ -35,7 +36,7 @@ def wake_up_client(wait_queue):
 
 # This function accepts one new client at a time. It always runs in the background.
 def accept_clients():
-    nim_array_saved, port_num, num_players, wait_list_size = parse_args()  # nim_array = [#A, #B, #C]
+    nim_array_saved, port_num, num_players, wait_list_size, optimal_strategy = parse_args()  # nim_array = [#A, #B, #C]
 
     if nim_array_saved is None and port_num is None and num_players is None and wait_list_size is None:
         print("The format of the arguments is illegal. "
@@ -99,7 +100,7 @@ def accept_clients():
                     if num_sockets == num_players:
                         # too many clients
                         is_active_dict[conn_sock] = False
-                        if wait_queue.full():
+                        if wait_queue.full() or wait_list_size == 0:
                             send_dict[conn_sock] += struct.pack(">iiii", 7, 0, 0, 0)
                         else:
                             send_dict[conn_sock] += struct.pack(">iiii", 8, 0, 0, 0)
@@ -164,7 +165,10 @@ def accept_clients():
                         # flag == 0
                         send_dict[conn_sock] += struct.pack(">iiii", 1, 0, 0, 0)  # send Illegal move
 
-                    ret_strategy = nim_strategy(nim_array)  # server plays
+                    if optimal_strategy:
+                        ret_strategy = nim_optimal_strategy(nim_array) # server plays
+                    else:
+                        ret_strategy = nim_strategy(nim_array)  # server plays
 
                     # send heap sizes:
                     send_dict[conn_sock] += struct.pack(">iiii", 6, nim_array[0], nim_array[1], nim_array[2])
@@ -206,7 +210,7 @@ def client_move(nim_array, index, num_to_decrease):
 # It return (None, None, None, None) if the format of the arguments is illegal.
 # Otherwise, it returns (nim_array, port_num, num_players, wait_list_size)
 def parse_args():
-    if len(sys.argv) < 6 or len(sys.argv) > 7:
+    if len(sys.argv) < 6 or len(sys.argv) > 8:
         return None, None, None, None
 
     nim_array = [num for num in sys.argv[1:4]]
@@ -227,13 +231,18 @@ def parse_args():
     if num_players < 0 or wait_list_size < 0:
         return None, None, None, None
 
-    if len(sys.argv) == 7:  # we received port
+    if len(sys.argv) >= 7:  # we received port
         if not sys.argv[6].isnumeric():
             return None, None, None, None
         port_num = int(sys.argv[6])
     else:
         port_num = PORT
-    return nim_array, port_num, num_players, wait_list_size
+
+    optimal_strategy = False
+    if len(sys.argv) == 8:  # we received optimal strategy flag
+        optimal_strategy = True
+
+    return nim_array, port_num, num_players, wait_list_size, optimal_strategy
 
 
 # This function creates a listening socket.
