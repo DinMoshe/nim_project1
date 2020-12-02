@@ -86,29 +86,6 @@ def readable_loop(readable, to_send, received_from_server):
     loop_condition = True
     for sock in readable:
         if sock is sys.stdin:
-            # client has entered a move
-            # bytes_object = None
-            # try:
-            #     bytes_object = sock.recv(4)
-            #     if bytes_object == 0:  # connection terminated
-            #         loop_condition = False
-            #         break
-            # except OSError as my_error:
-            #     if my_error.errno == errno.ECONNREFUSED:  # connection terminated
-            #         loop_condition = False
-            #         break
-            #
-            # index = bytes_object.find(b"/n")
-            # if index == -1:
-            #     # no new line character
-            #     received_from_user += struct.unpack(">" + str(len(bytes_object)) + "c", bytes_object)[0]
-            # else:
-            #     user_msg = received_from_user + struct.unpack(">" + str(index) + "c", bytes_object[:index])[0]
-            #     if index == len(bytes_object) - 1:
-            #         received_from_user = ""
-            #     else:
-            #         received_from_user = struct.unpack(">" + str(len(bytes_object) - index - 1) + "c",
-            #                                            bytes_object[index + 1:])[0]
 
             input_arr = input("").split()
 
