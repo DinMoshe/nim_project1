@@ -1,3 +1,5 @@
+#!/usr/bin/python3
+
 # This method checks if all heaps are empty.
 # If they are, it returns True, otherwise it returns False
 def is_empty(nim_array):
