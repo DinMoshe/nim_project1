@@ -119,7 +119,7 @@ def accept_clients():
                 else:
                     try:
                         bytes_object = s.recv(CLIENT_MSG_SIZE)
-                        if bytes_object == 0:  # connection terminated
+                        if bytes_object == 0 or len(bytes_object) == 0:  # connection terminated
                             release_socket(s)
                             wake_up_client(wait_queue)
                             continue

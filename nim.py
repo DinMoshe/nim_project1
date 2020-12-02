@@ -128,19 +128,18 @@ def readable_loop(readable, to_send, received_from_server):
                 # an illegal move has been sent to server
                 to_send += struct.pack(">ici", 0, '0'.encode("ascii"), 0)
 
-            # if ret == errno.EPIPE or ret == errno.ECONNRESET:
-            #    print(msg_lst[4])
-            #    break  # we need to terminate the program because we are not connected to the server anymore
         else:
             # sock is client_sock
             try:
                 bytes_object = sock.recv(SERVER_MSG_SIZE)
-                if bytes_object == 0 or bytes_object is None:  # connection terminated
+                if bytes_object == 0 or bytes_object is None or len(bytes_object) == 0:  # connection terminated
+                    print(msg_lst[4])
                     loop_condition = False
                     break
                 received_from_server += bytes_object
             except OSError as my_error:
                 if my_error.errno == errno.ECONNREFUSED:  # connection terminated
+                    print(msg_lst[4])
                     loop_condition = False
                     break
 
@@ -194,11 +193,6 @@ def play():
 
         # loop_condition == True
         remainder_bytes_to_send, to_send, loop_condition = writeable_loop(writeable, to_send, remainder_bytes_to_send)
-
-    # flushing the remained messages before disconnecting
-    # while to_send != b"":
-    #    readable, writeable, nothing = select(to_read, to_write, [], TIMEOUT)
-    #    remainder_bytes_to_send, to_send, not_important = writeable_loop(writeable, to_send, remainder_bytes_to_send)
 
     client_sock.close()
 
